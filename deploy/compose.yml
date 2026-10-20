@@ -1,0 +1,55 @@
+# Despliegue de Oxygen en las VM del curso (pps-dev, pps-pre, pps-pro).
+# Lo ejecuta el pipeline desde el runner de cada entorno:
+#   docker compose -p aNN-oxygen -f deploy/compose.yml up -d --build
+# Variables que pone el workflow: WEB_PORT, API_PORT, REACT_APP_API_ENDPOINT,
+# MONGODB_PASS y JWT_SECRET_KEY (secretos del entorno de GitHub).
+
+services:
+  mongo:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: oxygen
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASS:?falta el secreto MONGODB_PASS}
+      MONGO_INITDB_DATABASE: oxygen
+    volumes:
+      - mongo-data:/data/db
+      - ../docker/mongo-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build: ../Oxygen8Service
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      PORT: 8000
+      MONGODB_URI: mongodb://mongo:27017/oxygen
+      MONGODB_USER: oxygen
+      MONGODB_PASS: ${MONGODB_PASS}
+      MONGODB_AUTHSRC: admin
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?falta el secreto JWT_SECRET_KEY}
+      JWT_EXPIRE_TIME: 1h
+    ports:
+      - "${API_PORT:?falta API_PORT}:8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ../Oxygen8
+      args:
+        REACT_APP_API_ENDPOINT: ${REACT_APP_API_ENDPOINT:?falta REACT_APP_API_ENDPOINT}
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:?falta WEB_PORT}:8080"
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
+    labels:
+      keep: "true"

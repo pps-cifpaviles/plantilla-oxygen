@@ -1,0 +1,23 @@
+db.transporttypes.insertMany([
+    {
+      "name": "Coche",
+      "factor": 1.5
+    },
+    {
+      "name": "Autobús",
+      "factor": 0.4
+    },
+    {
+      "name": "Tren",
+      "factor":0.1
+    },
+    {
+      "name": "Bicicleta",
+      "factor": 0.05
+    },
+    {
+      "name": "Caminar",
+      "factor": 0.06
+    }
+  ]);
+  

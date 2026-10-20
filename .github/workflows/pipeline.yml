@@ -1,0 +1,112 @@
+# Pipeline base de Oxygen — Puesta en Producción Segura
+#
+# - CI (build) en runners de GitHub: en cada pull request y push.
+# - Despliegue en las VM del aula con runners self-hosted: SOLO en push a
+#   ramas protegidas, tags v* o ejecución manual. Nunca en pull_request.
+#
+# A lo largo del curso añadirás jobs: secretos y SAST (B3), SCA, SBOM e
+# imágenes en GHCR (B4), DAST (B5), firma y promoción de la imagen (B8).
+# Ejercicio de B4: fijar cada action por su SHA en lugar de por etiqueta.
+
+name: pipeline
+
+on:
+  pull_request:
+    branches: [develop, main, 'release/**']
+  push:
+    branches: [develop, 'release/**']
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ------------------------------------------------------------------- CI
+  build-web:
+    name: Build frontend (React)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Oxygen8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Oxygen8/package-lock.json
+      - run: npm ci
+      - name: Build
+        # Create React App trata los avisos de ESLint como errores si CI=true.
+        # Ejercicio: corregir los avisos y quitar CI=false.
+        run: CI=false npm run build
+        env:
+          REACT_APP_API_ENDPOINT: http://localhost:8000/api
+
+  build-api:
+    name: Build API (Node.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Oxygen8Service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Oxygen8Service/package-lock.json
+      - run: npm ci --omit=dev
+      - name: Comprobar la sintaxis
+        run: find src -name '*.js' -print0 | xargs -0 -n1 node --check
+
+  # ----------------------------------------------------------- Despliegues
+  deploy-dev:
+    name: Desplegar en desarrollo
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    needs: [build-web, build-api]
+    runs-on: [self-hosted, pps-dev]
+    environment: desarrollo
+    steps:
+      - uses: actions/checkout@v4
+      - name: Desplegar
+        run: bash deploy/deploy.sh pps-dev.aula.lan
+        env:
+          ALUMNO: ${{ vars.ALUMNO }}
+          MONGODB_PASS: ${{ secrets.MONGODB_PASS }}
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+
+  deploy-pre:
+    name: Desplegar en preproducción
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
+    needs: [build-web, build-api]
+    runs-on: [self-hosted, pps-pre]
+    environment: preproduccion
+    steps:
+      - uses: actions/checkout@v4
+      - name: Desplegar
+        run: bash deploy/deploy.sh pps-pre.aula.lan
+        env:
+          ALUMNO: ${{ vars.ALUMNO }}
+          MONGODB_PASS: ${{ secrets.MONGODB_PASS }}
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+
+  deploy-pro:
+    name: Desplegar en producción
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [build-web, build-api]
+    runs-on: [self-hosted, pps-pro]
+    environment: produccion
+    steps:
+      - uses: actions/checkout@v4
+      - name: Desplegar
+        run: bash deploy/deploy.sh pps-pro.aula.lan
+        env:
+          ALUMNO: ${{ vars.ALUMNO }}
+          MONGODB_PASS: ${{ secrets.MONGODB_PASS }}
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}

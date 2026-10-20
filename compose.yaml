@@ -1,0 +1,51 @@
+# Oxygen: frontend (React) + API (Express) + MongoDB
+# Uso: cp .env.example .env  &&  docker compose up -d --build
+
+services:
+  mongo:
+    image: mongo:7
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASS}
+      MONGO_INITDB_DATABASE: oxygen
+    volumes:
+      - mongo-data:/data/db
+      - ./docker/mongo-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    # Sin "ports": MongoDB solo es accesible desde la red interna de Compose
+
+  api:
+    build: ./Oxygen8Service
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      PORT: 8000
+      MONGODB_URI: mongodb://mongo:27017/oxygen
+      MONGODB_USER: ${MONGODB_USER}
+      MONGODB_PASS: ${MONGODB_PASS}
+      MONGODB_AUTHSRC: admin
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_EXPIRE_TIME: ${JWT_EXPIRE_TIME:-1h}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./Oxygen8
+      args:
+        REACT_APP_API_ENDPOINT: ${REACT_APP_API_ENDPOINT:-http://localhost:8000/api}
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-3000}:8080"
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
